@@ -38,6 +38,8 @@ uniform float2 size;
 uniform float2 offset;
 uniform float4 cornerRadii;
 uniform float refractionHeight;
+// The band's bend (px): negative samples inward (magnifies what's under the band), positive samples outward
+// (draws what lies just beyond the edge in toward the rim; the drawable records a margin for it).
 uniform float refractionAmount;
 uniform float depthEffect;
 uniform float chromaticAberration;
@@ -144,6 +146,8 @@ half4 main(float2 coord) {
 
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
     float sdRaw = sd;
+    // Outside the shape (the margin recorded for outward refraction): clear, nothing to sample.
+    if (sdRaw >= 0.5) return half4(0.0);
     if (-sd >= refractionHeight) {
         half4 baseColor = content.eval(coord);
 

@@ -57,6 +57,10 @@ import java.io.InputStreamReader;
  * {@link #invalidateBackdrop()}. The recording references the source's children's display lists, so their
  * own redraws show through without recording again; and the lens node keeps its GPU layer, so an idle
  * screen (or an animation elsewhere in the window) costs the glass nothing.
+ * <p>
+ * A positive refraction amount samples outward: the band shows what lies just beyond the glass's edge,
+ * drawn in toward the rim, so lines crossing the edge curve into the glass without a break. The source is
+ * then recorded with a margin of that reach around the bounds (outside the shape the result is clear).
  */
 @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
 public class LiquidGlassDrawable extends Drawable {
@@ -72,7 +76,7 @@ public class LiquidGlassDrawable extends Drawable {
     private boolean dirty = true;
     private int recW = -1, recH = -1;
     private float recDx = Float.NaN, recDy = Float.NaN;
-    private int recSig;
+    private int recSig, recM;
     private boolean effectDirty = true;
 
     // Parameters (px where a length).
@@ -164,31 +168,39 @@ public class LiquidGlassDrawable extends Drawable {
         float dx = hostLoc[0] + b.left - srcLoc[0];
         float dy = hostLoc[1] + b.top - srcLoc[1];
         int sig = sourceSignature();
-        if (dirty || w != recW || h != recH || dx != recDx || dy != recDy || sig != recSig) {
-            node.setPosition(0, 0, w, h);
-            Canvas rec = node.beginRecording(w, h);
+        int m = margin();
+        if (dirty || w != recW || h != recH || dx != recDx || dy != recDy || sig != recSig || m != recM) {
+            node.setPosition(0, 0, w + 2 * m, h + 2 * m);
+            Canvas rec = node.beginRecording(w + 2 * m, h + 2 * m);
             try {
-                rec.translate(-dx, -dy);
+                rec.translate(-dx + m, -dy + m);
                 source.draw(rec);
             } finally {
                 node.endRecording();
             }
             records++;
-            if (w != recW || h != recH) effectDirty = true;
-            recW = w; recH = h; recDx = dx; recDy = dy; recSig = sig;
+            if (w != recW || h != recH || m != recM) effectDirty = true;
+            recW = w; recH = h; recDx = dx; recDy = dy; recSig = sig; recM = m;
             dirty = false;
         }
         if (effectDirty) applyEffect(w, h);
         int save = canvas.save();
-        canvas.translate(b.left, b.top);
+        canvas.translate(b.left - m, b.top - m);
         canvas.drawRenderNode(node);
         canvas.restoreToCount(save);
     }
 
+    /** How far outside the bounds the lens samples (px): the outward refraction plus its colour split. */
+    private int margin() {
+        if (refractionAmount <= 0f) return 0;
+        return (int) Math.ceil(refractionAmount * (1f + Math.abs(dispersion))) + 1;
+    }
+
     private void applyEffect(int w, int h) {
         float r = Math.min(cornerRadius, Math.min(w, h) / 2f);
+        int m = margin();
         shader.setFloatUniform("size", w, h);
-        shader.setFloatUniform("offset", 0f, 0f);
+        shader.setFloatUniform("offset", -m, -m);
         shader.setFloatUniform("cornerRadii", r, r, r, r);
         shader.setFloatUniform("refractionHeight", Math.max(0.01f, refractionHeight));
         shader.setFloatUniform("refractionAmount", refractionAmount);
