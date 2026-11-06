@@ -52,6 +52,11 @@ uniform float tintAlpha;
 uniform float rimLight;
 uniform float rimWidth;
 uniform float2 lightDir;
+// 0 = the circular profile (strong at the very edge, short); 1 = a long, smooth falloff (smootherstep:
+// the bend and its magnification both fade to zero where the band meets the flat centre, no line).
+uniform float bandSoftness;
+// A soft glow of the rim light reaching across the band, fading to zero at its inner end (0 = none).
+uniform float rimGlow;
 // Opacity; outside the rounded shape the result is transparent (anti-aliased edge), so a drawable needs
 // no clip.
 uniform float alpha;
@@ -119,12 +124,14 @@ half4 saturateColor(half4 color, float amount) {
 }
 
 half4 finish(half4 c, float2 centeredCoord, float2 halfSize, float radius, float sdRaw) {
-    if (rimLight > 0.0) {
+    if (rimLight > 0.0 || rimGlow > 0.0) {
         float2 n = safeNormalize(gradSdRoundedRect(centeredCoord, halfSize, max(radius, 1.0)), float2(0.0, -1.0));
         float facing = dot(n, lightDir);
         float lobe = pow(max(facing, 0.0), 2.2) + 0.6 * pow(max(-facing, 0.0), 2.2) + 0.15;
         float edge = 1.0 - smoothstep(0.0, rimWidth, -sdRaw);
-        c.rgb = min(c.rgb + half3(rimLight * lobe * edge), half3(1.0));
+        float g = 1.0 - smoothstep(0.0, max(refractionHeight, 1.0), -sdRaw);
+        float glow = rimGlow * g * g;
+        c.rgb = min(c.rgb + half3((rimLight * edge + glow) * lobe), half3(1.0));
     }
     float m = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
     return half4(c.rgb * m, c.a * m);
@@ -150,7 +157,9 @@ half4 main(float2 coord) {
     }
 
     sd = min(sd, 0.0);
-    float d = circleMap(1.0 - -sd / refractionHeight) * refractionAmount;
+    float x = clamp(1.0 - -sd / refractionHeight, 0.0, 1.0);
+    float soft = x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
+    float d = mix(circleMap(x), soft, bandSoftness) * refractionAmount;
     float smoothRadius = max(radius * 1.5, 30.0);
     float gradRadius = min(smoothRadius, min(halfSize.x, halfSize.y));
 

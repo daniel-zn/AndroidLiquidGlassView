@@ -268,6 +268,8 @@ public final class LiquidGlassimpl implements Impl {
         liquidShader.setFloatUniform("rimWidth", 1f);
         liquidShader.setFloatUniform("lightDir", 0f, -1f);
         liquidShader.setFloatUniform("alpha", 1f);
+        liquidShader.setFloatUniform("bandSoftness", 0f);
+        liquidShader.setFloatUniform("rimGlow", 0f);
 
         RenderEffect shaderEffect = RenderEffect.createRuntimeShaderEffect(liquidShader, "content");
         RenderEffect finalEffect = (contentEffect != null)

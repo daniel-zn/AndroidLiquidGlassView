@@ -81,6 +81,7 @@ public class LiquidGlassDrawable extends Drawable {
     private float contrast, whitePoint, chromaMultiplier = 1f;
     private float tintR = 1f, tintG = 1f, tintB = 1f, tintAlpha;
     private float rimLight, rimWidth = 2f, lightX, lightY = -1f;
+    private float bandSoftness, rimGlow;
     private int alpha = 255;
 
     /** Records made (measuring: an idle screen should leave it unchanged). */
@@ -125,6 +126,11 @@ public class LiquidGlassDrawable extends Drawable {
         tintR = r; tintG = g; tintB = b; tintAlpha = a; effectDirty = true; invalidateSelf();
     }
     /** A light line along the edges facing (lightX, lightY) and the opposite ones (0 = none), [widthPx] wide. */
+    /** 0 = circular edge profile (default); 1 = a long smooth falloff into the flat centre. */
+    public void setBandSoftness(float v) { if (v != bandSoftness) { bandSoftness = v; effectDirty = true; invalidateSelf(); } }
+    /** A soft rim glow across the band, fading out at its inner end (0 = none, the default). */
+    public void setRimGlow(float v) { if (v != rimGlow) { rimGlow = v; effectDirty = true; invalidateSelf(); } }
+
     public void setRimLight(float strength, float widthPx, float lightX, float lightY) {
         if (strength == rimLight && widthPx == rimWidth && lightX == this.lightX && lightY == this.lightY) return;
         rimLight = strength; rimWidth = widthPx; this.lightX = lightX; this.lightY = lightY;
@@ -197,6 +203,8 @@ public class LiquidGlassDrawable extends Drawable {
         shader.setFloatUniform("rimWidth", Math.max(0.5f, rimWidth));
         shader.setFloatUniform("lightDir", lightX, lightY);
         shader.setFloatUniform("alpha", alpha / 255f);
+        shader.setFloatUniform("bandSoftness", bandSoftness);
+        shader.setFloatUniform("rimGlow", rimGlow);
         node.setRenderEffect(RenderEffect.createRuntimeShaderEffect(shader, "content"));
         effectDirty = false;
     }
