@@ -105,7 +105,10 @@ public final class LiquidGlassimpl implements Impl {
 
     @Override
     public void onPreDraw() {
-        record();
+        // Record only when what the glass sees changed (moved, resized, the target's children drawn
+        // changed): the recording references the target's children, so their own redraws show through, and
+        // the node keeps its layer, so an idle window costs nothing.
+        if (needsRecord()) record();
 
         float cornerRadius = config.CORNER_RADIUS_PX;
         float eccentricFactor = config.ECCENTRIC_FACTOR;
@@ -159,6 +162,25 @@ public final class LiquidGlassimpl implements Impl {
         }
     }
 
+    private int recW = -1, recH = -1, recDx = Integer.MIN_VALUE, recDy = Integer.MIN_VALUE, recSig;
+
+    private boolean needsRecord() {
+        target.getLocationInWindow(tp);
+        host.getLocationInWindow(hp);
+        int dx = hp[0] - tp[0], dy = hp[1] - tp[1];
+        int sig = target.getWidth() * 31 + target.getHeight();
+        if (target instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) target;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                View c = g.getChildAt(i);
+                if (c == host) continue;
+                sig = sig * 31 + System.identityHashCode(c);
+                sig = sig * 31 + c.getVisibility();
+            }
+        }
+        return dx != recDx || dy != recDy || target.getWidth() != recW || target.getHeight() != recH || sig != recSig;
+    }
+
     private void record() {
         int w = target.getWidth(), h = target.getHeight();
         if (w == 0 || h == 0) return;
@@ -169,6 +191,18 @@ public final class LiquidGlassimpl implements Impl {
         rec.translate(-(hp[0] - tp[0]), -(hp[1] - tp[1]));
         target.draw(rec);
         node.endRecording();
+        recDx = hp[0] - tp[0]; recDy = hp[1] - tp[1]; recW = w; recH = h;
+        int sig = w * 31 + h;
+        if (target instanceof android.view.ViewGroup) {
+            android.view.ViewGroup g = (android.view.ViewGroup) target;
+            for (int i = 0; i < g.getChildCount(); i++) {
+                View c = g.getChildAt(i);
+                if (c == host) continue;
+                sig = sig * 31 + System.identityHashCode(c);
+                sig = sig * 31 + c.getVisibility();
+            }
+        }
+        recSig = sig;
     }
 
     @Override
@@ -230,6 +264,10 @@ public final class LiquidGlassimpl implements Impl {
         liquidShader.setFloatUniform("chromaMultiplier", chromaMultiplier);
         liquidShader.setFloatUniform("tintColor", new float[]{tintRed, tintGreen, tintBlue});
         liquidShader.setFloatUniform("tintAlpha", tintAlpha);
+        liquidShader.setFloatUniform("rimLight", 0f);
+        liquidShader.setFloatUniform("rimWidth", 1f);
+        liquidShader.setFloatUniform("lightDir", 0f, -1f);
+        liquidShader.setFloatUniform("alpha", 1f);
 
         RenderEffect shaderEffect = RenderEffect.createRuntimeShaderEffect(liquidShader, "content");
         RenderEffect finalEffect = (contentEffect != null)

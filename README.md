@@ -1,3 +1,8 @@
+> **This fork** adds `LiquidGlassDrawable` (the same lens as a view background, recorded only when what
+> the glass sees changes, so an idle screen costs nothing), an optional rim light and an anti-aliased shape
+> mask in the shader, and records `LiquidGlassView`'s source only when it moves, resizes or changes which
+> children it draws. Upstream: [QmDeve/AndroidLiquidGlassView](https://github.com/QmDeve/AndroidLiquidGlassView) (MIT).
+
 <div align="center">
   
 ## AndroidLiquidGlassView

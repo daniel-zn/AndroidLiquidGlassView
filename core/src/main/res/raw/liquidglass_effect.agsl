@@ -48,6 +48,13 @@ uniform float chromaMultiplier;
 
 uniform float3 tintColor;
 uniform float tintAlpha;
+// Rim light along the edges facing lightDir (and, fainter, the opposite ones), rimWidth px wide; 0 = none.
+uniform float rimLight;
+uniform float rimWidth;
+uniform float2 lightDir;
+// Opacity; outside the rounded shape the result is transparent (anti-aliased edge), so a drawable needs
+// no clip.
+uniform float alpha;
 
 const half3 rgbToY = half3(0.2126, 0.7152, 0.0722);
 
@@ -111,12 +118,25 @@ half4 saturateColor(half4 color, float amount) {
     return half4(sat, color.a);
 }
 
+half4 finish(half4 c, float2 centeredCoord, float2 halfSize, float radius, float sdRaw) {
+    if (rimLight > 0.0) {
+        float2 n = safeNormalize(gradSdRoundedRect(centeredCoord, halfSize, max(radius, 1.0)), float2(0.0, -1.0));
+        float facing = dot(n, lightDir);
+        float lobe = pow(max(facing, 0.0), 2.2) + 0.6 * pow(max(-facing, 0.0), 2.2) + 0.15;
+        float edge = 1.0 - smoothstep(0.0, rimWidth, -sdRaw);
+        c.rgb = min(c.rgb + half3(rimLight * lobe * edge), half3(1.0));
+    }
+    float m = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
+    return half4(c.rgb * m, c.a * m);
+}
+
 half4 main(float2 coord) {
     float2 halfSize = size * 0.5;
     float2 centeredCoord = (coord + offset) - halfSize;
     float radius = radiusAt(centeredCoord, cornerRadii);
 
     float sd = sdRoundedRect(centeredCoord, halfSize, radius);
+    float sdRaw = sd;
     if (-sd >= refractionHeight) {
         half4 baseColor = content.eval(coord);
 
@@ -126,7 +146,7 @@ half4 main(float2 coord) {
         baseColor.rgb = (baseColor.rgb - 0.5) * (1.0 + contrast) + 0.5;
 
         half3 tintedRGB = mix(baseColor.rgb, tintColor, tintAlpha);
-        return half4(tintedRGB, baseColor.a);
+        return finish(half4(tintedRGB, baseColor.a), centeredCoord, halfSize, radius, sdRaw);
     }
 
     sd = min(sd, 0.0);
@@ -182,5 +202,5 @@ half4 main(float2 coord) {
     color.rgb = (color.rgb - 0.5) * (1.0 + contrast) + 0.5;
 
     half3 tintedRGB = mix(color.rgb, tintColor, tintAlpha);
-    return half4(tintedRGB, color.a);
+    return finish(half4(tintedRGB, color.a), centeredCoord, halfSize, radius, sdRaw);
 }
