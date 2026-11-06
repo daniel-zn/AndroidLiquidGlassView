@@ -49,7 +49,8 @@ import java.io.InputStreamReader;
 /**
  * The liquid glass lens as a {@link Drawable}, for a view's background: the same shader as
  * {@link com.qmdeve.liquidglass.widget.LiquidGlassView}, over a picture of {@code source} (a view behind the
- * host that is not one of its ancestors, e.g. a wallpaper or a background stack).
+ * host that is not one of its ancestors, e.g. a wallpaper or a background stack, or a view holding a
+ * picture of the window under the host's window, placed in screen coordinates).
  * <p>
  * The source is recorded into a RenderNode only when what the glass sees changes: the first draw, a new
  * size, the glass moving relative to the source, a change in which of the source's children are drawn, or
@@ -150,8 +151,10 @@ public class LiquidGlassDrawable extends Drawable {
         Rect b = getBounds();
         int w = b.width(), h = b.height();
         if (w <= 0 || h <= 0 || host == null || source == null || !canvas.isHardwareAccelerated()) return;
-        host.getLocationInWindow(hostLoc);
-        source.getLocationInWindow(srcLoc);
+        // Screen positions: the source may be in another window than the host (a popup over a picture
+        // of the window under it); in one window this is the same difference as window positions.
+        host.getLocationOnScreen(hostLoc);
+        source.getLocationOnScreen(srcLoc);
         float dx = hostLoc[0] + b.left - srcLoc[0];
         float dy = hostLoc[1] + b.top - srcLoc[1];
         int sig = sourceSignature();
