@@ -82,7 +82,7 @@ public class LiquidGlassDrawable extends Drawable {
 
     // Parameters (px where a length).
     private float cornerRadius;
-    private float refractionHeight, refractionAmount, depthEffect = 0.3f, dispersion = 0.5f;
+    private float refractionHeight, refractionAmount, depthEffect = 0.3f, dispersion = 0.15f;
     private float contrast, whitePoint, chromaMultiplier = 1f;
     private float tintR = 1f, tintG = 1f, tintB = 1f, tintAlpha;
     private float rimLight, rimWidth = 2f, lightX, lightY = -1f;
@@ -121,6 +121,10 @@ public class LiquidGlassDrawable extends Drawable {
     /** How far the band bends what's behind it, px: negative samples inward (magnifies the edge). */
     public void setRefractionAmount(float px) { if (px != refractionAmount) { refractionAmount = px; effectDirty = true; invalidateSelf(); } }
     public void setDepthEffect(float v) { if (v != depthEffect) { depthEffect = v; effectDirty = true; invalidateSelf(); } }
+    /**
+     * The colour split along the bend, as a share of it (0 = none, one sample per pixel; 0.1-0.2 a clear,
+     * smooth fringe strongest at the rim that fades into the centre with the bend).
+     */
     public void setDispersion(float v) { if (v != dispersion) { dispersion = v; effectDirty = true; invalidateSelf(); } }
     public void setContrast(float v) { if (v != contrast) { contrast = v; effectDirty = true; invalidateSelf(); } }
     /** Toward white (> 0) or black (< 0), 0-1. */

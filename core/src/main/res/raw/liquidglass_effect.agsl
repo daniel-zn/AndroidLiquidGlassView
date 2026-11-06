@@ -42,6 +42,8 @@ uniform float refractionHeight;
 // (draws what lies just beyond the edge in toward the rim; the drawable records a margin for it).
 uniform float refractionAmount;
 uniform float depthEffect;
+// The colour split, as a share of the bend: red is sampled that much further out, blue that much further
+// in (0 = one sample, no split).
 uniform float chromaticAberration;
 
 uniform float contrast;
@@ -113,6 +115,12 @@ float2 gradSdRoundedRect(float2 coord, float2 halfSize, float radius) {
     }
 }
 
+// A smooth bump over [-0.8, 0.8]: one colour's share of the split.
+half spectral(float x) {
+    float u = clamp(1.0 - (x * x) / 0.64, 0.0, 1.0);
+    return half(u * u);
+}
+
 float circleMap(float x) {
     return 1.0 - sqrt(1.0 - x * x);
 }
@@ -172,42 +180,28 @@ half4 main(float2 coord) {
     float2 grad = safeNormalize(shapeGrad + depthEffect * depthGrad, shapeGrad);
 
     float2 refractedCoord = coord + d * grad;
-    float dispersionIntensity = chromaticAberration * ((centeredCoord.x * centeredCoord.y) / (halfSize.x * halfSize.y));
-    float2 dispersedCoord = d * grad * dispersionIntensity;
-
-    half4 color = half4(0.0);
-
-    half4 red = content.eval(refractedCoord + dispersedCoord);
-    color.r += red.r / 3.5;
-    color.a += red.a / 7.0;
-
-    half4 orange = content.eval(refractedCoord + dispersedCoord * (2.0 / 3.0));
-    color.r += orange.r / 3.5;
-    color.g += orange.g / 7.0;
-    color.a += orange.a / 7.0;
-
-    half4 yellow = content.eval(refractedCoord + dispersedCoord * (1.0 / 3.0));
-    color.r += yellow.r / 3.5;
-    color.g += yellow.g / 3.5;
-    color.a += yellow.a / 7.0;
-
-    half4 green = content.eval(refractedCoord);
-    color.g += green.g / 3.5;
-    color.a += green.a / 7.0;
-
-    half4 cyan = content.eval(refractedCoord - dispersedCoord * (1.0 / 3.0));
-    color.g += cyan.g / 3.5;
-    color.b += cyan.b / 3.0;
-    color.a += cyan.a / 7.0;
-
-    half4 blue = content.eval(refractedCoord - dispersedCoord * (2.0 / 3.0));
-    color.b += blue.b / 3.0;
-    color.a += blue.a / 7.0;
-
-    half4 purple = content.eval(refractedCoord - dispersedCoord);
-    color.r += purple.r / 7.0;
-    color.b += purple.b / 3.0;
-    color.a += purple.a / 7.0;
+    half4 color;
+    if (chromaticAberration <= 0.0) {
+        color = content.eval(refractedCoord);
+    } else {
+        // The colour split runs along the bend (the edge's normal) in proportion to it: strongest at the
+        // rim, fading into the centre with the bend, the same all along an edge. Twelve taps with smooth,
+        // overlapping spectral weights spread a sharp line into a smooth fringe instead of separate
+        // coloured copies of it.
+        float2 split = grad * (d * chromaticAberration);
+        half3 acc = half3(0.0);
+        half3 wsum = half3(0.0);
+        half a = 0.0;
+        for (int i = 0; i < 12; i++) {
+            float t = (float(i) + 0.5) / 6.0 - 1.0;
+            half4 s = content.eval(refractedCoord + split * t);
+            half3 w = half3(spectral(t - 0.55), spectral(t), spectral(t + 0.55));
+            acc += s.rgb * w;
+            wsum += w;
+            a += s.a;
+        }
+        color = half4(acc / wsum, a / 12.0);
+    }
 
     color = saturateColor(color, chromaMultiplier);
     float3 target = (whitePoint > 0.0) ? float3(1.0) : float3(0.0);
