@@ -187,14 +187,20 @@ half4 main(float2 coord) {
         // The colour split runs along the bend (the edge's normal) in proportion to it: strongest at the
         // rim, fading into the centre with the bend, the same all along an edge. Twelve taps with smooth,
         // overlapping spectral weights spread a sharp line into a smooth fringe instead of separate
-        // coloured copies of it.
-        float2 split = grad * (d * chromaticAberration);
+        // coloured copies of it. The taps also spread along the edge (as far as the split is long, in a
+        // shuffled order), so small details beyond the edge, which the bend stretches into streaks, blur
+        // into one another instead of each turning into its own rainbow; shapes larger than the split
+        // still get a clear fringe.
+        float splitLen = d * chromaticAberration;
+        float2 split = grad * splitLen;
+        float2 along = float2(-grad.y, grad.x) * splitLen;
         half3 acc = half3(0.0);
         half3 wsum = half3(0.0);
         half a = 0.0;
         for (int i = 0; i < 12; i++) {
             float t = (float(i) + 0.5) / 6.0 - 1.0;
-            half4 s = content.eval(refractedCoord + split * t);
+            float u = fract(float(i) * 0.5833 + 0.04) * 2.0 - 1.0;
+            half4 s = content.eval(refractedCoord + split * t + along * u);
             half3 w = half3(spectral(t - 0.55), spectral(t), spectral(t + 0.55));
             acc += s.rgb * w;
             wsum += w;
