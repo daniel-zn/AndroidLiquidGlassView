@@ -42,8 +42,8 @@ uniform float refractionHeight;
 // (draws what lies just beyond the edge in toward the rim; the drawable records a margin for it).
 uniform float refractionAmount;
 uniform float depthEffect;
-// The colour split, as a share of the bend: red is sampled that much further out, blue that much further
-// in (0 = one sample, no split).
+// The colour split, as a share of the bend at the rim (narrowing inward faster than the bend): red is
+// sampled that much further out, blue that much further in (0 = one sample, no split).
 uniform float chromaticAberration;
 
 uniform float contrast;
@@ -190,8 +190,9 @@ half4 main(float2 coord) {
         // coloured copies of it. The taps also spread along the edge (as far as the split is long, in a
         // shuffled order), so small details beyond the edge, which the bend stretches into streaks, blur
         // into one another instead of each turning into its own rainbow; shapes larger than the split
-        // still get a clear fringe.
-        float splitLen = d * chromaticAberration;
+        // still get a clear fringe. The split also narrows toward the inside faster than the bend (x³, x =
+        // 1 at the rim): a fringe that hugs the rim, as on Apple's glass, not a colour wash over the band.
+        float splitLen = d * chromaticAberration * x * x * x;
         float2 split = grad * splitLen;
         float2 along = float2(-grad.y, grad.x) * splitLen;
         half3 acc = half3(0.0);
