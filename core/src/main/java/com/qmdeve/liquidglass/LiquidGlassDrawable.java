@@ -53,7 +53,8 @@ import java.io.InputStreamReader;
  * picture of the window under the host's window, placed in screen coordinates).
  * <p>
  * The source is recorded into a RenderNode only when what the glass sees changes: the first draw, a new
- * size, the glass moving relative to the source, a change in which of the source's children are drawn, or
+ * size, the glass moving relative to the source, a change in which of the source's children are drawn, the
+ * system having dropped the recording (it frees a hidden window's display lists), or
  * {@link #invalidateBackdrop()}. The recording references the source's children's display lists, so their
  * own redraws show through without recording again; and the lens node keeps its GPU layer, so an idle
  * screen (or an animation elsewhere in the window) costs the glass nothing.
@@ -169,7 +170,10 @@ public class LiquidGlassDrawable extends Drawable {
         float dy = hostLoc[1] + b.top - srcLoc[1];
         int sig = sourceSignature();
         int m = margin();
-        if (dirty || w != recW || h != recH || dx != recDx || dy != recDy || sig != recSig || m != recM) {
+        // !hasDisplayList(): the system dropped the recording (it frees every display list of a window
+        // that is hidden, e.g. while another app is in front); without this the lens would draw nothing.
+        if (dirty || !node.hasDisplayList() || w != recW || h != recH || dx != recDx || dy != recDy
+                || sig != recSig || m != recM) {
             node.setPosition(0, 0, w + 2 * m, h + 2 * m);
             Canvas rec = node.beginRecording(w + 2 * m, h + 2 * m);
             try {
