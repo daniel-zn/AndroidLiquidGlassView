@@ -69,10 +69,16 @@ public class LiquidGlassDrawable extends Drawable {
     /**
      * A source view that draws a stand-in for itself under glass, e.g. a pre-blurred copy of a still picture
      * (frosted glass at no cost per frame). It is drawn in the source's own coordinates, like
-     * {@link View#draw}; when what it draws changes, call {@link #invalidateBackdrop} on the glass over it.
+     * {@link View#draw}. When what it draws changes, it changes {@link #backdropVersion} (the glass over it
+     * records again at its next draw), or call {@link #invalidateBackdrop} on that glass.
      */
     public interface Backdrop {
         void drawBackdrop(@NonNull Canvas canvas);
+
+        /** Changes whenever {@link #drawBackdrop} would draw something different. */
+        default int backdropVersion() {
+            return 0;
+        }
     }
 
     private final RuntimeShader shader;
@@ -179,6 +185,7 @@ public class LiquidGlassDrawable extends Drawable {
     private int sourceSignature() {
         View s = source;
         int h = s.getWidth() * 31 + s.getHeight();
+        if (s instanceof Backdrop) h = h * 31 + ((Backdrop) s).backdropVersion();
         if (s instanceof ViewGroup) {
             ViewGroup g = (ViewGroup) s;
             for (int i = 0; i < g.getChildCount(); i++) {
