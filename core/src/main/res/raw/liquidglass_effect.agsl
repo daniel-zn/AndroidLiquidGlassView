@@ -134,10 +134,11 @@ half spectral(float x) {
 }
 
 half3 colour(half3 c) {
-    // Saturation in linear light, then the adaptive tone, the lift, the tint and contrast.
-    half3 lin = toLinearSrgb(c);
+    // Saturation in linear light (gamma 2: close to sRGB's curve, and no pow per pixel), then the adaptive
+    // tone, the lift, the tint and contrast.
+    half3 lin = c * c;
     float yl = dot(lin, rgbToY);
-    c = fromLinearSrgb(max(mix(half3(yl), lin, chromaMultiplier), half3(0.0)));
+    c = sqrt(max(mix(half3(yl), lin, chromaMultiplier), half3(0.0)));
     float ys = dot(c, rgbToY);
     float pull = ys < tone ? adapt.x : adapt.y;
     c += half3((tone - ys) * pull);
@@ -158,6 +159,12 @@ half4 main(float2 coord) {
     float dIn = max(-sdRaw, 0.0);
     float band = max(refractionHeight, 1.0);
     float t = clamp(dIn / band, 0.0, 1.0);
+    // The flat top beyond the band and the light: the picture as it is, coloured (most of the pixels).
+    if (t >= 1.0 && dIn >= max(rimWidth, fresnelWidth)) {
+        half4 flat = content.eval(coord);
+        float mf = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
+        return half4(colour(flat.rgb) * mf, flat.a * mf);
+    }
 
     float smoothRadius = max(radius * 1.5, 30.0);
     float gradRadius = min(smoothRadius, min(halfSize.x, halfSize.y));
@@ -173,7 +180,10 @@ half4 main(float2 coord) {
         float2 depthGrad = safeNormalize(centeredCoord, shapeGrad);
         float2 grad = safeNormalize(shapeGrad + depthEffect * depthGrad, shapeGrad);
         float2 refractedCoord = coord + d * grad;
-        if (chromaticAberration <= 0.0) {
+        float x = 1.0 - t;
+        float splitLen = d * chromaticAberration * x * x * x;
+        // No split, or under half a pixel (most of the band, as it narrows fast): one sample.
+        if (abs(splitLen) < 0.5) {
             color = content.eval(refractedCoord);
         } else {
             // The colour split runs along the bend (the edge's normal) in proportion to it, narrowing toward
@@ -182,8 +192,6 @@ half4 main(float2 coord) {
             // spread along the edge (as far as the split is long, in a shuffled order), so small details
             // beyond the edge, which the bend stretches into streaks, blur together instead of each turning
             // into its own rainbow.
-            float x = 1.0 - t;
-            float splitLen = d * chromaticAberration * x * x * x;
             float2 split = grad * splitLen;
             float2 along = float2(-grad.y, grad.x) * splitLen;
             half3 acc = half3(0.0);
