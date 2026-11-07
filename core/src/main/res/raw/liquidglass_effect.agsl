@@ -37,29 +37,41 @@ uniform shader content;
 uniform float2 size;
 uniform float2 offset;
 uniform float4 cornerRadii;
+// The thick slab's rounded edge: how far in from the rim it reaches (px). Inside it the glass is flat.
 uniform float refractionHeight;
-// The band's bend (px): negative samples inward (magnifies what's under the band), positive samples outward
-// (draws what lies just beyond the edge in toward the rim; the drawable records a margin for it).
+// How far the slab's edge bends what's behind it at the rim (px): positive samples outward (draws what lies
+// just beyond the edge in toward the rim; the drawable records a margin for it), negative inward.
 uniform float refractionAmount;
+// The edge's height profile: a squircle h(t) = (1 - (1 - t)^k)^(1/k) over the band (t = 0 at the rim, 1
+// where it meets the flat top); 2 = a quarter circle, 4 = a squircle (a flatter top, a steeper rim).
+uniform float profile;
+// How much the bend leans toward the centre's direction (rounds the bend's field at the corners).
 uniform float depthEffect;
 // The colour split, as a share of the bend at the rim (narrowing inward faster than the bend): red is
 // sampled that much further out, blue that much further in (0 = one sample, no split).
 uniform float chromaticAberration;
 
 uniform float contrast;
+// Toward white (> 0) or black (< 0), 0-1: the glass's own lift.
 uniform float whitePoint;
+// Saturation (linear light): > 1 the frosted picture behind reads richer, as Apple's glass does.
 uniform float chromaMultiplier;
+// Adaptive tone: the picture's lightness is pulled toward tone (sRGB lightness, 0-1), by adapt.x where it
+// is darker (the glass lightens over dark pictures) and adapt.y where it is lighter (darkens over bright).
+uniform float tone;
+uniform float2 adapt;
 
 uniform float3 tintColor;
 uniform float tintAlpha;
-// Rim light along the edges facing lightDir (and, fainter, the opposite ones), rimWidth px wide; 0 = none.
+// Light: a thin rim line (rimLight, rimWidth px), an edge brightening a little wider (fresnel, fresnelWidth
+// px) and a soft glow across the band from the lit side (rimGlow), all strongest on the edges facing
+// lightDir, oppositeLight times that on the edges facing away, dim at right angles.
 uniform float rimLight;
 uniform float rimWidth;
 uniform float2 lightDir;
-// 0 = the circular profile (strong at the very edge, short); 1 = a long, smooth falloff (smootherstep:
-// the bend and its magnification both fade to zero where the band meets the flat centre, no line).
-uniform float bandSoftness;
-// A soft glow of the rim light reaching across the band, fading to zero at its inner end (0 = none).
+uniform float oppositeLight;
+uniform float fresnel;
+uniform float fresnelWidth;
 uniform float rimGlow;
 // Opacity; outside the rounded shape the result is transparent (anti-aliased edge), so a drawable needs
 // no clip.
@@ -121,30 +133,18 @@ half spectral(float x) {
     return half(u * u);
 }
 
-float circleMap(float x) {
-    return 1.0 - sqrt(1.0 - x * x);
-}
-
-half4 saturateColor(half4 color, float amount) {
-    half3 lin = toLinearSrgb(color.rgb);
-    float y = dot(lin, rgbToY);
-    half3 gray = half3(y);
-    half3 sat = fromLinearSrgb(mix(gray, lin, amount));
-    return half4(sat, color.a);
-}
-
-half4 finish(half4 c, float2 centeredCoord, float2 halfSize, float radius, float sdRaw) {
-    if (rimLight > 0.0 || rimGlow > 0.0) {
-        float2 n = safeNormalize(gradSdRoundedRect(centeredCoord, halfSize, max(radius, 1.0)), float2(0.0, -1.0));
-        float facing = dot(n, lightDir);
-        float lobe = pow(max(facing, 0.0), 2.2) + 0.6 * pow(max(-facing, 0.0), 2.2) + 0.15;
-        float edge = 1.0 - smoothstep(0.0, rimWidth, -sdRaw);
-        float g = 1.0 - smoothstep(0.0, max(refractionHeight, 1.0), -sdRaw);
-        float glow = rimGlow * g * g;
-        c.rgb = min(c.rgb + half3((rimLight * edge + glow) * lobe), half3(1.0));
-    }
-    float m = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
-    return half4(c.rgb * m, c.a * m);
+half3 colour(half3 c) {
+    // Saturation in linear light, then the adaptive tone, the lift, the tint and contrast.
+    half3 lin = toLinearSrgb(c);
+    float yl = dot(lin, rgbToY);
+    c = fromLinearSrgb(max(mix(half3(yl), lin, chromaMultiplier), half3(0.0)));
+    float ys = dot(c, rgbToY);
+    float pull = ys < tone ? adapt.x : adapt.y;
+    c += half3((tone - ys) * pull);
+    float3 target = (whitePoint > 0.0) ? float3(1.0) : float3(0.0);
+    c = mix(c, target, abs(whitePoint));
+    c = mix(c, tintColor, tintAlpha);
+    return (c - 0.5) * (1.0 + contrast) + 0.5;
 }
 
 half4 main(float2 coord) {
@@ -152,69 +152,64 @@ half4 main(float2 coord) {
     float2 centeredCoord = (coord + offset) - halfSize;
     float radius = radiusAt(centeredCoord, cornerRadii);
 
-    float sd = sdRoundedRect(centeredCoord, halfSize, radius);
-    float sdRaw = sd;
+    float sdRaw = sdRoundedRect(centeredCoord, halfSize, radius);
     // Outside the shape (the margin recorded for outward refraction): clear, nothing to sample.
     if (sdRaw >= 0.5) return half4(0.0);
-    if (-sd >= refractionHeight) {
-        half4 baseColor = content.eval(coord);
+    float dIn = max(-sdRaw, 0.0);
+    float band = max(refractionHeight, 1.0);
+    float t = clamp(dIn / band, 0.0, 1.0);
 
-        baseColor = saturateColor(baseColor, chromaMultiplier);
-        float3 target = (whitePoint > 0.0) ? float3(1.0) : float3(0.0);
-        baseColor.rgb = mix(baseColor.rgb, target, abs(whitePoint));
-        baseColor.rgb = (baseColor.rgb - 0.5) * (1.0 + contrast) + 0.5;
-
-        half3 tintedRGB = mix(baseColor.rgb, tintColor, tintAlpha);
-        return finish(half4(tintedRGB, baseColor.a), centeredCoord, halfSize, radius, sdRaw);
-    }
-
-    sd = min(sd, 0.0);
-    float x = clamp(1.0 - -sd / refractionHeight, 0.0, 1.0);
-    float soft = x * x * x * (x * (x * 6.0 - 15.0) + 10.0);
-    float d = mix(circleMap(x), soft, bandSoftness) * refractionAmount;
     float smoothRadius = max(radius * 1.5, 30.0);
     float gradRadius = min(smoothRadius, min(halfSize.x, halfSize.y));
-
     float2 shapeGrad = gradSdRoundedRect(centeredCoord, halfSize, gradRadius);
-    float2 depthGrad = safeNormalize(centeredCoord, shapeGrad);
-    float2 grad = safeNormalize(shapeGrad + depthEffect * depthGrad, shapeGrad);
 
-    float2 refractedCoord = coord + d * grad;
     half4 color;
-    if (chromaticAberration <= 0.0) {
-        color = content.eval(refractedCoord);
+    if (t >= 1.0) {
+        color = content.eval(coord);
     } else {
-        // The colour split runs along the bend (the edge's normal) in proportion to it: strongest at the
-        // rim, fading into the centre with the bend, the same all along an edge. Twelve taps with smooth,
-        // overlapping spectral weights spread a sharp line into a smooth fringe instead of separate
-        // coloured copies of it. The taps also spread along the edge (as far as the split is long, in a
-        // shuffled order), so small details beyond the edge, which the bend stretches into streaks, blur
-        // into one another instead of each turning into its own rainbow; shapes larger than the split
-        // still get a clear fringe. The split also narrows toward the inside faster than the bend (x³, x =
-        // 1 at the rim): a fringe that hugs the rim, as on Apple's glass, not a colour wash over the band.
-        float splitLen = d * chromaticAberration * x * x * x;
-        float2 split = grad * splitLen;
-        float2 along = float2(-grad.y, grad.x) * splitLen;
-        half3 acc = half3(0.0);
-        half3 wsum = half3(0.0);
-        half a = 0.0;
-        for (int i = 0; i < 12; i++) {
-            float t = (float(i) + 0.5) / 6.0 - 1.0;
-            float u = fract(float(i) * 0.5833 + 0.04) * 2.0 - 1.0;
-            half4 s = content.eval(refractedCoord + split * t + along * u);
-            half3 w = half3(spectral(t - 0.55), spectral(t), spectral(t + 0.55));
-            acc += s.rgb * w;
-            wsum += w;
-            a += s.a;
+        // The slab's height across its rounded edge; the bend is steepest at the rim, none on the flat top.
+        float hgt = pow(1.0 - pow(1.0 - t, profile), 1.0 / profile);
+        float d = refractionAmount * (1.0 - hgt);
+        float2 depthGrad = safeNormalize(centeredCoord, shapeGrad);
+        float2 grad = safeNormalize(shapeGrad + depthEffect * depthGrad, shapeGrad);
+        float2 refractedCoord = coord + d * grad;
+        if (chromaticAberration <= 0.0) {
+            color = content.eval(refractedCoord);
+        } else {
+            // The colour split runs along the bend (the edge's normal) in proportion to it, narrowing toward
+            // the inside faster than the bend ((1 - t)^3): a fringe that hugs the rim. Twelve taps with
+            // smooth, overlapping spectral weights spread a sharp line into a smooth fringe; the taps also
+            // spread along the edge (as far as the split is long, in a shuffled order), so small details
+            // beyond the edge, which the bend stretches into streaks, blur together instead of each turning
+            // into its own rainbow.
+            float x = 1.0 - t;
+            float splitLen = d * chromaticAberration * x * x * x;
+            float2 split = grad * splitLen;
+            float2 along = float2(-grad.y, grad.x) * splitLen;
+            half3 acc = half3(0.0);
+            half3 wsum = half3(0.0);
+            half a = 0.0;
+            for (int i = 0; i < 12; i++) {
+                float tt = (float(i) + 0.5) / 6.0 - 1.0;
+                float u = fract(float(i) * 0.5833 + 0.04) * 2.0 - 1.0;
+                half4 s = content.eval(refractedCoord + split * tt + along * u);
+                half3 w = half3(spectral(tt - 0.55), spectral(tt), spectral(tt + 0.55));
+                acc += s.rgb * w;
+                wsum += w;
+                a += s.a;
+            }
+            color = half4(acc / wsum, a / 12.0);
         }
-        color = half4(acc / wsum, a / 12.0);
     }
 
-    color = saturateColor(color, chromaMultiplier);
-    float3 target = (whitePoint > 0.0) ? float3(1.0) : float3(0.0);
-    color.rgb = mix(color.rgb, target, abs(whitePoint));
-    color.rgb = (color.rgb - 0.5) * (1.0 + contrast) + 0.5;
+    half3 c = colour(color.rgb);
+    float facing = dot(shapeGrad, lightDir);
+    float lobe = 0.2 + 0.8 * (pow(max(facing, 0.0), 1.5) + oppositeLight * pow(max(-facing, 0.0), 1.5));
+    float rimV = rimLight * (1.0 - clamp(dIn / max(rimWidth, 0.5), 0.0, 1.0));
+    float f = 1.0 - clamp(dIn / max(fresnelWidth, 1.0), 0.0, 1.0);
+    float light = (rimV + fresnel * f * f) * lobe + rimGlow * (1.0 - t) * (1.0 - t) * max(facing, 0.0);
+    c = clamp(c + (1.0 - c) * clamp(light, 0.0, 1.0), 0.0, 1.0);
 
-    half3 tintedRGB = mix(color.rgb, tintColor, tintAlpha);
-    return finish(half4(tintedRGB, color.a), centeredCoord, halfSize, radius, sdRaw);
+    float m = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
+    return half4(c * m, color.a * m);
 }

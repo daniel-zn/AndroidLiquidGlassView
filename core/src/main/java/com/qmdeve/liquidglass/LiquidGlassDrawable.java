@@ -66,6 +66,15 @@ import java.io.InputStreamReader;
 @RequiresApi(api = Build.VERSION_CODES.TIRAMISU)
 public class LiquidGlassDrawable extends Drawable {
 
+    /**
+     * A source view that draws a stand-in for itself under glass, e.g. a pre-blurred copy of a still picture
+     * (frosted glass at no cost per frame). It is drawn in the source's own coordinates, like
+     * {@link View#draw}; when what it draws changes, call {@link #invalidateBackdrop} on the glass over it.
+     */
+    public interface Backdrop {
+        void drawBackdrop(@NonNull Canvas canvas);
+    }
+
     private final RuntimeShader shader;
     private final RenderNode node = new RenderNode("LiquidGlassDrawable");
     private View host;
@@ -86,7 +95,8 @@ public class LiquidGlassDrawable extends Drawable {
     private float contrast, whitePoint, chromaMultiplier = 1f;
     private float tintR = 1f, tintG = 1f, tintB = 1f, tintAlpha;
     private float rimLight, rimWidth = 2f, lightX, lightY = -1f;
-    private float bandSoftness, rimGlow;
+    private float rimGlow, profile = 2f, tone = 0.4f, adaptDark, adaptBright, oppositeLight = 0.6f;
+    private float fresnel, fresnelWidth = 8f;
     private int alpha = 255;
 
     /** Records made (measuring: an idle screen should leave it unchanged). */
@@ -135,10 +145,29 @@ public class LiquidGlassDrawable extends Drawable {
         tintR = r; tintG = g; tintB = b; tintAlpha = a; effectDirty = true; invalidateSelf();
     }
     /** A light line along the edges facing (lightX, lightY) and the opposite ones (0 = none), [widthPx] wide. */
-    /** 0 = circular edge profile (default); 1 = a long smooth falloff into the flat centre. */
-    public void setBandSoftness(float v) { if (v != bandSoftness) { bandSoftness = v; effectDirty = true; invalidateSelf(); } }
-    /** A soft rim glow across the band, fading out at its inner end (0 = none, the default). */
+    /**
+     * The edge's height profile across the band: a squircle (1 - (1 - t)^k)^(1/k); 2 (the default) is a
+     * quarter circle, 4 a squircle (a flatter top, a steeper rim). The bend follows the slope.
+     */
+    public void setProfile(float k) { k = Math.max(1f, k); if (k != profile) { profile = k; effectDirty = true; invalidateSelf(); } }
+    /**
+     * Adaptive tone: lightness is pulled toward [tone] (sRGB lightness, 0-1) by [dark] where the picture is
+     * darker (the glass lightens over dark pictures) and by [bright] where it is lighter (darkens over
+     * bright ones). 0, 0 (the default) = none.
+     */
+    public void setAdaptiveTone(float tone, float dark, float bright) {
+        if (tone == this.tone && dark == adaptDark && bright == adaptBright) return;
+        this.tone = tone; adaptDark = dark; adaptBright = bright; effectDirty = true; invalidateSelf();
+    }
+    /** A soft glow across the band from the lit side, fading out at its inner end (0 = none, the default). */
     public void setRimGlow(float v) { if (v != rimGlow) { rimGlow = v; effectDirty = true; invalidateSelf(); } }
+    /** An edge brightening [strength] (0 = none) fading out over [widthPx], lit like the rim line. */
+    public void setFresnel(float strength, float widthPx) {
+        if (strength == fresnel && widthPx == fresnelWidth) return;
+        fresnel = strength; fresnelWidth = widthPx; effectDirty = true; invalidateSelf();
+    }
+    /** How strongly the edges facing away from the light catch it, a share of the lit side (0.6 the default). */
+    public void setOppositeLight(float v) { if (v != oppositeLight) { oppositeLight = v; effectDirty = true; invalidateSelf(); } }
 
     public void setRimLight(float strength, float widthPx, float lightX, float lightY) {
         if (strength == rimLight && widthPx == rimWidth && lightX == this.lightX && lightY == this.lightY) return;
@@ -182,7 +211,8 @@ public class LiquidGlassDrawable extends Drawable {
             Canvas rec = node.beginRecording(w + 2 * m, h + 2 * m);
             try {
                 rec.translate(-dx + m, -dy + m);
-                source.draw(rec);
+                if (source instanceof Backdrop) ((Backdrop) source).drawBackdrop(rec);
+                else source.draw(rec);
             } finally {
                 node.endRecording();
             }
@@ -223,7 +253,12 @@ public class LiquidGlassDrawable extends Drawable {
         shader.setFloatUniform("rimWidth", Math.max(0.5f, rimWidth));
         shader.setFloatUniform("lightDir", lightX, lightY);
         shader.setFloatUniform("alpha", alpha / 255f);
-        shader.setFloatUniform("bandSoftness", bandSoftness);
+        shader.setFloatUniform("profile", profile);
+        shader.setFloatUniform("tone", tone);
+        shader.setFloatUniform("adapt", adaptDark, adaptBright);
+        shader.setFloatUniform("oppositeLight", oppositeLight);
+        shader.setFloatUniform("fresnel", fresnel);
+        shader.setFloatUniform("fresnelWidth", Math.max(1f, fresnelWidth));
         shader.setFloatUniform("rimGlow", rimGlow);
         node.setRenderEffect(RenderEffect.createRuntimeShaderEffect(shader, "content"));
         effectDirty = false;
