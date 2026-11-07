@@ -161,9 +161,9 @@ half4 main(float2 coord) {
     float t = clamp(dIn / band, 0.0, 1.0);
     // The flat top beyond the band and the light: the picture as it is, coloured (most of the pixels).
     if (t >= 1.0 && dIn >= max(rimWidth, fresnelWidth)) {
-        half4 flat = content.eval(coord);
+        half4 top = content.eval(coord);
         float mf = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
-        return half4(colour(flat.rgb) * mf, flat.a * mf);
+        return half4(colour(top.rgb) * mf, top.a * mf);
     }
 
     float smoothRadius = max(radius * 1.5, 30.0);
