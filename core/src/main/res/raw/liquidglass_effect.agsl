@@ -65,7 +65,8 @@ uniform float3 tintColor;
 uniform float tintAlpha;
 // Light: a thin rim line (rimLight, rimWidth px), an edge brightening a little wider (fresnel, fresnelWidth
 // px) and a soft glow across the band from the lit side (rimGlow), all strongest on the edges facing
-// lightDir, oppositeLight times that on the edges facing away, dim at right angles.
+// lightDir, oppositeLight times that on the edges facing away, dim at right angles. A negative
+// oppositeLight shades the edges facing away instead (Apple's glass: a darker bottom edge).
 uniform float rimLight;
 uniform float rimWidth;
 uniform float2 lightDir;
@@ -216,7 +217,8 @@ half4 main(float2 coord) {
     float rimV = rimLight * (1.0 - clamp(dIn / max(rimWidth, 0.5), 0.0, 1.0));
     float f = 1.0 - clamp(dIn / max(fresnelWidth, 1.0), 0.0, 1.0);
     float light = (rimV + fresnel * f * f) * lobe + rimGlow * (1.0 - t) * (1.0 - t) * max(facing, 0.0);
-    c = clamp(c + (1.0 - c) * clamp(light, 0.0, 1.0), 0.0, 1.0);
+    // Lit edges lift toward white; a negative oppositeLight shades the edges facing away instead.
+    c = light >= 0.0 ? clamp(c + (1.0 - c) * min(light, 1.0), 0.0, 1.0) : c * (1.0 + max(light, -1.0));
 
     float m = clamp(0.5 - sdRaw, 0.0, 1.0) * alpha;
     return half4(c * m, color.a * m);

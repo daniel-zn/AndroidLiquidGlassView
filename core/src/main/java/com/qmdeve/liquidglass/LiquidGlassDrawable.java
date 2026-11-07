@@ -172,7 +172,7 @@ public class LiquidGlassDrawable extends Drawable {
         if (strength == fresnel && widthPx == fresnelWidth) return;
         fresnel = strength; fresnelWidth = widthPx; effectDirty = true; invalidateSelf();
     }
-    /** How strongly the edges facing away from the light catch it, a share of the lit side (0.6 the default). */
+    /** How strongly the edges facing away from the light catch it, a share of the lit side (0.6 the default); below 0 they are shaded instead. */
     public void setOppositeLight(float v) { if (v != oppositeLight) { oppositeLight = v; effectDirty = true; invalidateSelf(); } }
 
     public void setRimLight(float strength, float widthPx, float lightX, float lightY) {
